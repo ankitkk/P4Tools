@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Perforce.P4;
+using Perforce;
 using CommandLine;
 using System.Threading; 
 
@@ -30,7 +31,7 @@ namespace P4Sync
         public string ClientSpec { get; set; }
 
 
-        [Option('t', "threads", DefaultValue = 3,
+        [Option('t', "threads", DefaultValue = 5,
         HelpText = "Peforce clientspec")]
         public int Threads { get; set; }
 
@@ -58,16 +59,21 @@ namespace P4Sync
             try
             {
 
-                // new connection for everythread.
+                // new connection for every thread.
                 Perforce.P4.Server server = new Perforce.P4.Server(new Perforce.P4.ServerAddress(options.Server));
                 Perforce.P4.Repository rep = new Perforce.P4.Repository(server);
                 Perforce.P4.Connection con = rep.Connection;
+
 
                 con.UserName = options.User;
                 con.Client = new Perforce.P4.Client();
                 con.Client.Name = options.ClientSpec;
                 con.Connect(null);
                 Perforce.P4.Credential Creds = con.Login(options.Passwd, null, null);
+                con.InfoResultsReceived += new P4Server.InfoResultsDelegate(con_InfoResultsReceived);
+                con.ErrorReceived += new P4Server.ErrorDelegate(con_ErrorReceived);
+                con.TextResultsReceived += new P4Server.TextResultsDelegate(con_TextResultsReceived);
+
 
                 // get server metadata and check version
                 // (using null for options parameter)
@@ -76,40 +82,29 @@ namespace P4Sync
                 string release = version.Major;
 
                 // lets get all the files which need to be synced.  
-                SyncFilesCmdOptions syncOpts = new SyncFilesCmdOptions(SyncFilesCmdFlags.Force, -1);
-
-
-                int done = 0;
-
-                foreach (var file in FilesToSync)
-                {
-                    bool loop = true;
-                    System.Console.WriteLine(" [ {0}/{1}  ] {2} on Thread {3} ", done, FilesToSync.Count() - done, file.ClientPath, ThreadId);
-                    while (loop)
-                    {
-                        try
-                        {
-                            IList<FileSpec> syncedFiles = con.Client.SyncFiles(syncOpts, file);
-                            loop = false;
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Console.WriteLine("retrying " + file.DepotPath + ex.ToString());
-                            loop = true;
-                        }
-                    }
-                    done++;
-
-                }
-
-                con.Disconnect();
+                SyncFilesCmdOptions syncOpts = new SyncFilesCmdOptions(SyncFilesCmdFlags.None, -1);
+                IList<FileSpec> syncedFiles = con.Client.SyncFiles(syncOpts, FilesToSync.ToArray());
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine("Peforce error - Thread exiting "); 
+                System.Console.WriteLine("Perforce error - Thread exiting "); 
             }
         }
 
+        void con_TextResultsReceived(string data)
+        {
+            System.Console.WriteLine("Info: " + data); 
+        }
+
+        void con_ErrorReceived(int severity, string data)
+        {
+            System.Console.WriteLine("Error: " + data); 
+        }
+
+        void con_InfoResultsReceived(int level, string data)
+        {
+            System.Console.WriteLine("Info:  " +data); 
+        }
     }
    
 
@@ -142,12 +137,9 @@ namespace P4Sync
             con.Client.Name = options.ClientSpec;
             con.Connect(null);
             Perforce.P4.Credential Creds = con.Login(options.Passwd, null, null);
-
-            // get server metadata and check version
-            // (using null for options parameter)
-            ServerMetaData p4info = rep.GetServerMetaData();
-            ServerVersion version = p4info.Version;
-            string release = version.Major;
+            con.InfoResultsReceived += new P4Server.InfoResultsDelegate(con_InfoResultsReceived);
+            con.ErrorReceived += new P4Server.ErrorDelegate(con_ErrorReceived);
+            con.TextResultsReceived += new P4Server.TextResultsDelegate(con_TextResultsReceived);
 
             // lets get all the files which need to be synced.  
             SyncFilesCmdOptions syncOpts = new SyncFilesCmdOptions(SyncFilesCmdFlags.Preview, -1);
@@ -159,12 +151,27 @@ namespace P4Sync
             {
                 var ChunkedLists = Chunk(syncedFiles.AsEnumerable(), syncedFiles.Count() / options.Threads).ToList();
                 List<P4Sync> Syncs = new List<P4Sync>();
-
-                for (int i = 0; i < options.Threads; i++)
+                System.Console.WriteLine("We have {0} files to sync. Creating {1} Threads", syncedFiles.Count(), ChunkedLists.Count()); 
+                for (int i = 0; i < ChunkedLists.Count(); i++)
                 {
                     Syncs.Add(new P4Sync(options, ChunkedLists[i].ToList(), i));
                 }
             }
+        }
+
+        static void con_TextResultsReceived(string data)
+        {
+            System.Console.WriteLine("Info: " + data);
+        }
+
+        static void con_ErrorReceived(int severity, string data)
+        {
+            System.Console.WriteLine("Error: " + data);
+        }
+
+        static void con_InfoResultsReceived(int level, string data)
+        {
+            System.Console.WriteLine("Info:  " + data);
         }
     }
 }
