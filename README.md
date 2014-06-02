@@ -4,7 +4,8 @@ P4Tools
 P4 Tools 
 
 
-P4Sync - commandlien tool for parallelizm syncs. 
+P4Sync - command line tool for parallel syncs. 
+
 -u username
 -p passwd
 -s server:port
