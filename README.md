@@ -6,7 +6,7 @@ P4 Tools
 
 P4Sync - command line tool for parallel syncs. 
 
--u username
+-u username 
 -p passwd
 -s server:port
 -c clientspec
